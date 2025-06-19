@@ -25,3 +25,4 @@ yarl==1.19.0
 humanize==4.12.3
 seaborn==0.13.2
 httpx==0.28.1
+paramiko==3.5.1

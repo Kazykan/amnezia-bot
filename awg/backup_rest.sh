@@ -5,10 +5,6 @@ set -e
 LOCAL_FILES_DIR="files" # Локальная папка на хосте, содержащая server.conf и clientsTable
 CONTAINER_CLIENTS_TABLE_PATH="/opt/amnezia/awg/clientsTable" # Путь к файлу clientsTable внутри контейнера (фиксирован из ваших скриптов)
 
-# --- Аргументы ---
-# В контексте вызова этого скрипта, эти аргументы будут $1 и $2.
-# Мы используем имена переменных, как вы указали: WG_CONFIG_FILE и DOCKER_CONTAINER.
-# Скрипт ожидает 2 аргумента: <путь_wg_конфигурации_внутри_контейнера> и <имя_или_ID_docker_контейнера>
 if [ "$#" -lt 2 ]; then
     echo "Использование: $0 <путь_wg_конфигурации_внутри_контейнера> <имя_или_ID_docker_контейнера>"
     echo "Пример: $0 /opt/amnezia/awg/wg0.conf amnezia-wg"

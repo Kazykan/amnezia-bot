@@ -9,8 +9,9 @@ import aiohttp
 import humanize
 from typing import cast, Optional
 from zoneinfo import ZoneInfo
-from service.system_stats import parse_vnstat_hourly, plot_traffic_to_buffer
 import db
+from service.system_stats import parse_vnstat_hourly, plot_traffic_to_buffer
+from service.amnezia_server import deploy_to_all_servers
 from aiogram import Bot
 from aiogram import Router, F
 from aiogram.types import (
@@ -24,7 +25,6 @@ from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from aiogram.utils.chat_action import ChatActionSender
 from aiogram.fsm.context import FSMContext
-from aiogram.utils.text_decorations import markdown_decoration
 from admin_service.admin import is_privileged
 from service.send_backup_admin import create_db_backup
 from utils import get_isp_info, parse_relative_time, parse_transfer
@@ -233,13 +233,15 @@ async def validate_callback_data(callback: CallbackQuery) -> bool:
     if not is_privileged(user_id):
         await callback.answer("Нет прав.", show_allert=True)
         return False
-    
+
     return True
+
 
 async def get_client_info(username: str) -> Optional[tuple]:
     """Получает базовую информацию о клиенте."""
     clients = db.get_client_list()
     return next((c for c in clients if c[0] == username), None)
+
 
 def get_client_network_info(client_info: tuple) -> tuple[str, str, str, str]:
     """Извлекает сетевую информацию клиента."""
@@ -258,24 +260,25 @@ def get_client_network_info(client_info: tuple) -> tuple[str, str, str, str]:
 
     return status, incoming_traffic, outgoing_traffic, ipv4_address
 
+
 async def update_client_activity_status(
-    username: str,
-    status: str,
-    incoming_traffic: str,
-    outgoing_traffic: str
+    username: str, status: str, incoming_traffic: str, outgoing_traffic: str
 ) -> tuple[str, str, str]:
     """Обновляет статус активности клиента."""
     active_clients = db.get_active_list()
     active_info = active_clients.get(username)
 
-    if active_info and active_info.last_time.lower() not in ["never", "нет данных", "-"]:
+    if active_info and active_info.last_time.lower() not in [
+        "never",
+        "нет данных",
+        "-",
+    ]:
         try:
             last_handshake = parse_relative_time(active_info.last_time)
             if (
                 last_handshake
                 and (
-                    datetime.datetime.now(ZoneInfo("Europe/Moscow"))
-                    - last_handshake
+                    datetime.datetime.now(ZoneInfo("Europe/Moscow")) - last_handshake
                 ).total_seconds()
                 <= 60
             ):
@@ -294,19 +297,22 @@ async def update_client_activity_status(
 
     return status, incoming_traffic, outgoing_traffic
 
+
 def format_profile_text(
     username: str,
     ipv4_address: str,
     status: str,
     outgoing_traffic: str,
-    incoming_traffic: str
+    incoming_traffic: str,
 ) -> str:
     """Форматирует текст профиля пользователя."""
     telegram_name = user_db.get_user_by_telegram_id(username)
     telegram_name_text = telegram_name.name if telegram_name is not False else ""
     is_unlimited = telegram_name.is_unlimited if telegram_name is not False else 0
-    telegram_end_date_text = "безлимит" if is_unlimited else (
-        telegram_name.end_date if telegram_name is not False else ""
+    telegram_end_date_text = (
+        "безлимит"
+        if is_unlimited
+        else (telegram_name.end_date if telegram_name is not False else "")
     )
 
     return (
@@ -317,6 +323,7 @@ def format_profile_text(
         f"🔽 <b>Входящий:</b> {incoming_traffic}\n"
         f"🗓️ <b>Дата окончания:</b> {telegram_end_date_text}"
     )
+
 
 @router.callback_query(ClientCallbackFactory.filter())
 async def client_selected_callback(
@@ -335,10 +342,14 @@ async def client_selected_callback(
             await callback.answer("Пользователь не найден.", show_alert=True)
             return
 
-        status, incoming_traffic, outgoing_traffic, ipv4_address = get_client_network_info(client_info)
-        
-        status, incoming_traffic, outgoing_traffic = await update_client_activity_status(
-            username, status, incoming_traffic, outgoing_traffic
+        status, incoming_traffic, outgoing_traffic, ipv4_address = (
+            get_client_network_info(client_info)
+        )
+
+        status, incoming_traffic, outgoing_traffic = (
+            await update_client_activity_status(
+                username, status, incoming_traffic, outgoing_traffic
+            )
         )
 
         text = format_profile_text(
@@ -511,3 +522,16 @@ async def send_traffic_graph(message: Message):
     image_buf = plot_traffic_to_buffer(data)
     photo = BufferedInputFile(file=image_buf.read(), filename="traffic.png")
     await message.answer_photo(photo, caption="📊 Почасовой график сетевой нагрузки")
+
+
+@router.message(Command("servers"))
+async def send_traffic_graph(message: Message):
+    data = deploy_to_all_servers()
+    if not data:
+        await message.answer("❌ Не удалось получить данные о серверах.")
+        return
+    await message.answer(
+        f"```{data}```",
+        parse_mode=ParseMode.MARKDOWN_V2,
+        disable_web_page_preview=True,
+    )
