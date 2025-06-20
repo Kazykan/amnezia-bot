@@ -1,8 +1,12 @@
 import json
+from typing import Dict
 from scp import SCPClient  # type: ignore
 import os
 import paramiko
 import logging
+
+from service.parse_wg import parse_wg_show_output
+from service.base_model import ActiveClient
 
 logger = logging.getLogger(__name__)
 
@@ -66,14 +70,14 @@ def deploy_and_exec(server_config):
         ssh.exec_command(cmd_copy)
 
     # Перезапуск WireGuard внутри контейнера
-    cmd_restart = f'docker restart {docker_container}'
+    cmd_restart = f"docker restart {docker_container}"
     ssh.exec_command(cmd_restart)
 
     # Закрываем SSH-соединение
     ssh.close()
 
 
-def check_docker_ps(servers_json_path: str) -> str:
+def check_wg_show_remote(servers_json_path: str) -> str:
     with open(servers_json_path, "r") as f:
         servers = json.load(f)
 
@@ -91,7 +95,9 @@ def check_docker_ps(servers_json_path: str) -> str:
                 key_filename=ssh_key_path,
             )
 
-            stdin, stdout, stderr = ssh.exec_command("docker ps")
+            cmd = f"docker exec -i {server['docker_container']} wg show"
+
+            stdin, stdout, stderr = ssh.exec_command(cmd)
             output = stdout.read().decode()
             errors = stderr.read().decode()
 
@@ -108,3 +114,59 @@ def check_docker_ps(servers_json_path: str) -> str:
 
     logger.error("❌ Не удалось подключиться ни к одному серверу.")
     return "❌ Не удалось подключиться ни к одному серверу."
+
+
+def get_wg_show_output(server: dict) -> str:
+    import paramiko
+
+    ssh_key_path = os.path.expanduser(server["ssh_key_path"])
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.connect(
+        hostname=server["ssh_host"],
+        port=server.get("ssh_port", 22),
+        username=server["ssh_user"],
+        key_filename=ssh_key_path,
+    )
+    cmd = f"docker exec -i {server['docker_container']} wg show"
+    stdin, stdout, stderr = ssh.exec_command(cmd)
+    output = stdout.read().decode()
+    errors = stderr.read().decode()
+    ssh.close()
+
+    if errors:
+        logger.warning(f"⚠️ Ошибка в выводе команды на {server['ssh_host']}: {errors}")
+
+    return output
+
+
+def get_remote_active_clients(
+    client_key_map: Dict[str, str], servers_json_path: str = "files/servers.json"
+) -> Dict[str, ActiveClient]:
+    import paramiko
+
+    active_clients: Dict[str, ActiveClient] = {}
+
+    with open(servers_json_path, "r") as f:
+        servers = json.load(f)
+
+    for server in servers:
+        server_name = server["ssh_host"]
+        logger.info(f"\n🔄 Проверка сервера: {server_name}")
+        try:
+            output = get_wg_show_output(server)
+            if not output:
+                logger.warning(f"⚠️ Пустой вывод wg show на сервере {server_name}")
+                continue
+
+            clients_on_server = parse_wg_show_output(output, client_key_map)
+
+            # 🧩 Дополняем объект информацией о сервере
+            for username, client in clients_on_server.items():
+                client.server = server_name  # ➕ добавили информацию о сервере
+                active_clients[username] = client
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка при подключении к {server_name}: {e}")
+
+    return active_clients

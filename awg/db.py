@@ -6,8 +6,10 @@ import socket
 import logging
 import tempfile
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Dict
 
+from service.parse_wg import parse_wg_show_output
+from service.amnezia_server import get_remote_active_clients
 from service.base_model import ActiveClient
 
 EXPIRATIONS_FILE = "files/expirations.json"
@@ -202,27 +204,6 @@ def get_config(path="files/setting.ini"):
     return out
 
 
-def save_client_endpoint(username, endpoint):
-    os.makedirs("files/connections", exist_ok=True)
-    file_path = os.path.join("files", "connections", f"{username}_ip.json")
-    timestamp = datetime.now().strftime("%d.%m.%Y %H:%M")
-    ip_address = endpoint.split(":")[0]
-
-    if os.path.exists(file_path):
-        with open(file_path, "r") as f:
-            try:
-                data = json.load(f)
-            except json.JSONDecodeError:
-                data = {}
-    else:
-        data = {}
-
-    data[ip_address] = timestamp
-
-    with open(file_path, "w") as f:
-        json.dump(data, f)
-
-
 def root_add(id_user, ipv6=False):
     logger.info(f"➕ root_add - {id_user}")
     setting = get_config()
@@ -333,74 +314,43 @@ def get_client_list():
         return []
 
 
+def get_wg_show_output(docker_container: str) -> str:
+    """Получает вывод команды 'wg show' из указанного Docker-контейнера."""
+    cmd = f"docker exec -i {docker_container} wg show"
+    try:
+        call = subprocess.check_output(cmd, shell=True)
+        return call.decode("utf-8")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Ошибка при выполнении wg show: {e}")
+        return ""
+
+
+
 def get_active_list() -> Dict[str, ActiveClient]:
     setting = get_config()
     docker_container = setting["docker_container"]
-
-    client_map = get_clients_from_clients_table()
 
     try:
         clients = get_client_list()
         client_key_map = {client[1]: client[0] for client in clients}
 
-        cmd = f"docker exec -i {docker_container} wg show"
-        call = subprocess.check_output(cmd, shell=True)
-        wg_output = call.decode("utf-8")
+        # Локальные клиенты
+        wg_output = get_wg_show_output(docker_container)
+        local_active: Dict[str, ActiveClient] = {}
+        if wg_output:
+            local_active = parse_wg_show_output(wg_output, client_key_map)
+            for client in local_active.values():
+                client.server = "local"
 
-        active_clients: Dict[str, ActiveClient] = {}
-        current_peer: Dict[str, Optional[str]] = {}
-        for line in wg_output.splitlines():
-            line = line.strip()
-            if line.startswith("peer:"):
-                peer_public_key = line.split("peer: ")[1].strip()
-                current_peer = {"public_key": peer_public_key}
-            elif line.startswith("endpoint:") and "public_key" in current_peer:
-                current_peer["endpoint"] = line.split("endpoint: ")[1].strip()
-            elif line.startswith("latest handshake:") and "public_key" in current_peer:
-                current_peer["latest_handshake"] = line.split("latest handshake: ")[
-                    1
-                ].strip()
-            elif line.startswith("transfer:") and "public_key" in current_peer:
-                current_peer["transfer"] = line.split("transfer: ")[1].strip()
-            elif line == "" and "public_key" in current_peer:
-                last_handshake_raw = current_peer.get("latest_handshake")
-                last_handshake = last_handshake_raw.lower() if last_handshake_raw else ""
-                if last_handshake not in ["never", "нет данных", "-"]:
-                    peer_public_key = current_peer.get("public_key") or ""
-                    if peer_public_key in client_key_map:
-                        username = client_key_map[peer_public_key]
-                        last_time = current_peer.get("latest_handshake", "Нет данных")
-                        transfer = current_peer.get("transfer", "Нет данных")
-                        endpoint = current_peer.get("endpoint", "Нет данных")
-                        save_client_endpoint(username, endpoint)
-                        active_clients[username] = ActiveClient(
-                            last_time=last_time or "",
-                            transfer=transfer or "",
-                            endpoint=endpoint or ""
-                        )
-                current_peer = {}
+        # Удалённые клиенты
+        remote_active = get_remote_active_clients(client_key_map)
 
-        if "public_key" in current_peer:
-            last_handshake_raw = current_peer.get("latest_handshake")
-            last_handshake = last_handshake_raw.lower() if last_handshake_raw else ""
-            if last_handshake not in ["never", "нет данных", "-"]:
-                peer_public_key = current_peer.get("public_key") or ""
-                if peer_public_key in client_key_map:
-                    username = client_key_map[peer_public_key]
-                    last_time = current_peer.get("latest_handshake", "Нет данных")
-                    transfer = current_peer.get("transfer", "Нет данных")
-                    endpoint = current_peer.get("endpoint", "Нет данных")
-                    save_client_endpoint(username, endpoint)
-                    active_clients[username] = ActiveClient(
-                            last_time=last_time or "",
-                            transfer=transfer or "",
-                            endpoint=endpoint or ""
-                        )
+        # Объединение всех
+        all_active = {**local_active, **remote_active}
 
-        return active_clients
-
-    except subprocess.CalledProcessError as e:
-        print(f"Ошибка при получении активных клиентов: {e}")
+        return all_active
+    except Exception as e:
+        logger.error(f"Ошибка при получении активных клиентов: {e}")
         return {}
 
 

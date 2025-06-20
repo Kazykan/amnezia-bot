@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import subprocess
+from service.amnezia_server import deploy_to_all_servers
 from service.db_instance import user_db
 from settings import WG_CONFIG_FILE, DOCKER_CONTAINER
 
@@ -37,6 +38,7 @@ def get_all_users_vpn():
 
 
 def update_vpn_state():
+    """Обновление состояния VPN пользователей"""
     data = get_all_users_vpn()
     cmd = ["./updatepresharekey.sh", WG_CONFIG_FILE, DOCKER_CONTAINER]
     try:
@@ -44,6 +46,8 @@ def update_vpn_state():
             cmd, input=json.dumps(data), text=True, capture_output=True, check=True
         )
         logger.info(result.stdout)
+
+        deploy_to_all_servers()
         return True
     except subprocess.CalledProcessError as e:
         logger.error(f"Error during VPN update: {e.stderr}")

@@ -2,6 +2,7 @@ import base64
 import json
 import os
 import re
+from typing import Dict
 import aiohttp
 import logging
 import aiofiles
@@ -9,7 +10,7 @@ import ipaddress
 from datetime import datetime, timedelta, timezone
 
 from aiogram.types import User
-from service.base_model import Config, UserData
+from service.base_model import ActiveClient, Config, PeerData, UserData
 from settings import CACHE_TTL, ISP_CACHE_FILE, WG_CONFIG_FILE
 
 logger = logging.getLogger(__name__)
@@ -225,6 +226,7 @@ def get_vpn_caption(user_id: int) -> str:
         f"🤖 [Google Play](https://play.google.com/store/apps/details?id=org.amnezia.vpn&hl=ru)\n"
         f"💻 [GitHub](https://github.com/amnezia-vpn/amnezia-client)\n"
     )
+
 
 def get_welcome_caption() -> str:
     return (

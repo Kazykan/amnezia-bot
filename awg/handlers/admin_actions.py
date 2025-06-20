@@ -11,7 +11,7 @@ from typing import cast, Optional
 from zoneinfo import ZoneInfo
 import db
 from service.system_stats import parse_vnstat_hourly, plot_traffic_to_buffer
-from service.amnezia_server import deploy_to_all_servers
+from service.amnezia_server import check_wg_show_remote, deploy_to_all_servers
 from aiogram import Bot
 from aiogram import Router, F
 from aiogram.types import (
@@ -142,28 +142,29 @@ async def admin_list_users_callback(callback: CallbackQuery):
 
         for client_data in clients:
             username = client_data[0]
+            print(f"Processing client: {username}")
 
             activ_client = activ_clients.get(username)
             logger.debug(
                 f"Processing client: {username}, last_handshke: {activ_client}"
             )
 
+            print(f"Processing client: {username}, last_handshke: {activ_client}")
+
             status = "❌"  # По умолчанию неактивен
 
-            if not activ_client:
-                continue
-
-            if activ_client.last_time and activ_client.last_time.lower() not in [
-                "never",
-                "нет данных",
-                "-",
-            ]:
+            if (
+                activ_client
+                and activ_client.last_time
+                and activ_client.last_time.lower() not in ["never", "нет данных", "-"]
+            ):
                 status = "🟢"  # Упрощенно ставим 🟢 если строка рукопожатия не пуста и не Never/Нет данных/
+                server = activ_client.server if activ_client.server else ""
 
             telegram_name = user_db.get_user_by_telegram_id(username)
 
             if telegram_name is not False:
-                button_text = f"{status} {telegram_name.name}"
+                button_text = f"{status} {telegram_name.name} {server[:5]}"
             else:
                 button_text = f"{status} {username}"
 
@@ -524,9 +525,9 @@ async def send_traffic_graph(message: Message):
     await message.answer_photo(photo, caption="📊 Почасовой график сетевой нагрузки")
 
 
-@router.message(Command("servers"))
+@router.message(Command("data"))
 async def send_traffic_graph(message: Message):
-    data = deploy_to_all_servers()
+    data = check_wg_show_remote("files/servers.json")
     if not data:
         await message.answer("❌ Не удалось получить данные о серверах.")
         return

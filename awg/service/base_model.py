@@ -66,7 +66,19 @@ class Payment(BaseModel):
     unique_payload: Optional[str] = None
 
 
+class PeerData(BaseModel):
+    public_key: Optional[str] = None
+    endpoint: Optional[str] = "Нет данных"
+    latest_handshake: Optional[str] = "Нет данных"
+    transfer: Optional[str] = "Нет данных"
+
+    def is_active(self) -> bool:
+        handshake = (self.latest_handshake or "").lower()
+        return handshake not in {"never", "нет данных", "-"}
+
+
 class ActiveClient(BaseModel):
     last_time: str
     transfer: str
     endpoint: str
+    server: Optional[str] = None
