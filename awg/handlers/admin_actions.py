@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+from io import BytesIO
 import json
 import logging
 import os
@@ -10,7 +11,7 @@ import humanize
 from typing import cast, Optional
 from zoneinfo import ZoneInfo
 import db
-from service.system_stats import parse_vnstat_hourly, plot_traffic_to_buffer
+from service.system_stats import get_vnstati_image_to_buffer
 from service.amnezia_server import check_wg_show_remote, deploy_to_all_servers
 from aiogram import Bot
 from aiogram import Router, F
@@ -27,9 +28,15 @@ from aiogram.utils.chat_action import ChatActionSender
 from aiogram.fsm.context import FSMContext
 from admin_service.admin import is_privileged
 from service.send_backup_admin import create_db_backup
-from utils import get_isp_info, parse_relative_time, parse_transfer
-from fsm.callback_data import ClientCallbackFactory
-from keyboard.menu import get_client_profile_keyboard, get_home_keyboard
+from utils import (
+    generate_config_text,
+    get_isp_info,
+    parse_relative_time,
+    parse_transfer,
+)
+from fsm.callback_data import ClientCallbackFactory, UserConfCallbackFactory
+from keyboard.admin_menu import get_client_profile_keyboard
+from keyboard.menu import get_home_keyboard
 from fsm.admin_state import AdminState
 from service.vpn_service import create_vpn_config
 from service.db_instance import user_db
@@ -516,11 +523,10 @@ async def ip_info_callback(callback: CallbackQuery):
 
 @router.message(Command("traffic"))
 async def send_traffic_graph(message: Message):
-    data = parse_vnstat_hourly()
-    if not data:
-        await message.answer("❌ Не удалось получить данные vnstat.")
+    image_buf = get_vnstati_image_to_buffer()
+    if not image_buf:
+        await message.answer("❌ Не удалось получить данные о трафике.")
         return
-    image_buf = plot_traffic_to_buffer(data)
     photo = BufferedInputFile(file=image_buf.read(), filename="traffic.png")
     await message.answer_photo(photo, caption="📊 Почасовой график сетевой нагрузки")
 
@@ -536,3 +542,37 @@ async def send_traffic_graph(message: Message):
         parse_mode=ParseMode.MARKDOWN_V2,
         disable_web_page_preview=True,
     )
+
+
+@router.callback_query(UserConfCallbackFactory.filter())
+async def client_selected_callback(
+    callback: CallbackQuery, callback_data: UserConfCallbackFactory
+):
+    """Получение конфигурации пользователя по username"""
+    user_id = callback.from_user.id
+    if callback.message is None:
+        await callback.answer("Невозможно получить сообщение для отправки документа.")
+        return
+
+    if not is_privileged(user_id):
+        await callback.message.answer("У вас нет прав для этого действия.", show_alert=True)
+        return
+
+
+    username = callback_data.username
+
+    config = user_db.get_config_by_telegram_id(username)
+    if not config:
+        await callback.message.answer("Конфигурация не найдена")
+        return
+
+    config_text = generate_config_text(config)
+
+    file_bytes = BytesIO(config_text.encode())
+    file = BufferedInputFile(file=file_bytes.getvalue(), filename=f"{username}.conf")
+    await callback.message.answer_document(
+        document=file,
+        caption=f"Конфигурация для пользователя {username}",
+        parse_mode=ParseMode.HTML,
+    )
+    return

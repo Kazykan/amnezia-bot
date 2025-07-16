@@ -72,8 +72,8 @@ async def main():
     scheduler.add_job(
         send_peak_usage,
         trigger="cron",
-        hour=14,  # каждый день в 9:00 утра
-        minute=16,
+        hour=2,  # каждый день в 9:00 утра
+        minute=39,
         timezone=ZoneInfo("Europe/Moscow"),
     )
 

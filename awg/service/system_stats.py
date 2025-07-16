@@ -1,3 +1,6 @@
+import subprocess
+import tempfile
+import os
 import io
 import re
 import pandas as pd
@@ -123,20 +126,53 @@ def parse_vnstat_hourly():
     return data
 
 
-def plot_traffic_to_buffer(data):
+# def plot_traffic_to_buffer(data):
 
-    df = pd.DataFrame(data)
+#     df = pd.DataFrame(data)
 
-    plt.figure(figsize=(12, 6))
-    sns.lineplot(data=df, x="datetime", y="total", label="Total (MiB)")
-    sns.lineplot(data=df, x="datetime", y="avg_rate", label="Avg. Rate (Mbit/s)")
-    plt.xticks(rotation=45)
-    plt.ylabel("Usage")
-    plt.title("Hourly Network Traffic (vnstat)")
-    plt.tight_layout()
+#     plt.figure(figsize=(12, 6))
+#     sns.lineplot(data=df, x="datetime", y="total", label="Total (MiB)")
+#     sns.lineplot(data=df, x="datetime", y="avg_rate", label="Avg. Rate (Mbit/s)")
+#     plt.xticks(rotation=45)
+#     plt.ylabel("Usage")
+#     plt.title("Hourly Network Traffic (vnstat)")
+#     plt.tight_layout()
 
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png")
-    buf.seek(0)
-    plt.close()
-    return buf
+#     buf = io.BytesIO()
+#     plt.savefig(buf, format="png")
+#     buf.seek(0)
+#     plt.close()
+#     return buf
+
+def get_vnstati_image_to_buffer(header_text="local"):
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_file:
+            temp_path = tmp_file.name
+
+        # Команда генерации изображения
+        command = [
+            "vnstati",
+            "-s", "-hg",
+            "--headertext", header_text,
+            "-o", temp_path
+        ]
+        subprocess.run(command, check=True)
+
+        # Чтение изображения в буфер
+        with open(temp_path, "rb") as f:
+            image_bytes = f.read()
+
+        buffer = io.BytesIO(image_bytes)
+        buffer.seek(0)
+
+        # Удаление временного файла
+        os.remove(temp_path)
+
+        return buffer
+
+    except subprocess.CalledProcessError as e:
+        print(f"Ошибка при запуске vnstati: {e}")
+        return None
+    except Exception as e:
+        print(f"Не удалось получить изображение: {e}")
+        return None

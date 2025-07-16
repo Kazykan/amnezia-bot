@@ -4,7 +4,11 @@ import os
 from datetime import datetime
 import zipfile
 from aiogram.types import BufferedInputFile
-from service.system_stats import find_peak_usage, get_vnstat_hourly
+from service.system_stats import (
+    find_peak_usage,
+    get_vnstat_hourly,
+    get_vnstati_image_to_buffer,
+)
 from settings import ADMINS, BOT, DB_FILE
 
 logger = logging.getLogger(__name__)
@@ -66,20 +70,18 @@ async def send_backup():
 
 
 async def send_peak_usage():
-    """Отчет по нагрузке на сеть"""
-    vnstat_data = get_vnstat_hourly()
-    peak_hour_total, peak_total, peak_hour_avg, peak_avg_rate = find_peak_usage(
-        vnstat_data
-    )
-
-    if peak_hour_total and peak_hour_avg:
-        response = (
-            f"📊 **Самая пиковая нагрузка за день**:\n"
-            f"🔹 `total`: {peak_total} ГиБ в {peak_hour_total}\n"
-            f"🔹 `avg. rate`: {peak_avg_rate} Мбит/с в {peak_hour_avg}"
-        )
-    else:
-        response = "❌ Не удалось определить пиковую нагрузку!"
-
+    """Отчет по нагрузке на сеть по серверам"""
+    image_buf = get_vnstati_image_to_buffer()
+    if not image_buf:
+        for admin_id in ADMINS:
+            await BOT.answer(
+                chat_id=admin_id, text="❌ Не удалось получить данные о трафике."
+            )
+        return
+    photo = BufferedInputFile(file=image_buf.read(), filename="traffic.png")
     for admin_id in ADMINS:
-        await BOT.send_message(chat_id=admin_id, text=response)
+        await BOT.send_photo(
+            chat_id=admin_id,
+            photo=photo,
+            caption="📊 Почасовой график сетевой нагрузки",
+        )
