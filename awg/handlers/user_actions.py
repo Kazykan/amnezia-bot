@@ -17,14 +17,15 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-@router.callback_query(F.data == "user_account")
-async def user_profile(callback: CallbackQuery):
-    message = callback.message
-    # Явная проверка типа
-    if not isinstance(message, Message):
-        await callback.answer("Ошибка: бот недоступен.")
-        return
-    telegram_id = str(callback.from_user.id)
+async def send_user_profile(message: Message | CallbackQuery):
+
+    if isinstance(message, Message) and message.from_user is not None:
+        telegram_id = str(message.from_user.id)
+    elif isinstance(message, CallbackQuery):
+        telegram_id = str(message.from_user.id)
+    else:
+        telegram_id = "unknown"
+
     logger.info(f"Пользователь {telegram_id} открыл профиль")
 
     user = user_db.get_user_by_telegram_id(telegram_id)
@@ -33,42 +34,59 @@ async def user_profile(callback: CallbackQuery):
         await message.answer(
             "❌ Пользователь не найден. Пожалуйста, зарегистрируйтесь или свяжитесь с поддержкой."
         )
-        await callback.answer()
         return
 
-    # Форматируем дату окончания подписки
     profile_text = get_profile_text(user)
 
-    # Выбор нужного меню в зависимости от подписки
     if not user.is_unlimited:
         try:
-            end_date_obj = datetime.strptime(user.end_date, "%Y-%m-%d") if user.end_date else None
+            end_date_obj = (
+                datetime.strptime(user.end_date, "%Y-%m-%d") if user.end_date else None
+            )
         except Exception:
             end_date_obj = None
 
         if not user.end_date or (end_date_obj and end_date_obj < datetime.now()):
-            reply_markup = get_user_profile_menu_expired()  # Кнопки для неактивной подписки
+            reply_markup = get_user_profile_menu_expired()
         else:
             reply_markup = get_user_profile_menu()
     else:
         reply_markup = get_user_profile_menu()
 
-    # Безопасная замена: если текст редактировать нельзя — удалим и отправим заново
-    if message.text:
-        await message.edit_text(
-            profile_text,
-            parse_mode="Markdown",
-            reply_markup=reply_markup,
-        )
+    # Безопасная отправка
+    if isinstance(message, CallbackQuery):
+        msg = message.message
+        if isinstance(msg, Message):
+            if msg.text:
+                await msg.edit_text(
+                    profile_text,
+                    parse_mode="Markdown",
+                    reply_markup=reply_markup,
+                )
+            else:
+                await msg.delete()
+                await msg.answer(
+                    profile_text,
+                    parse_mode="Markdown",
+                    reply_markup=reply_markup,
+                )
+            await message.answer()
     else:
-        await message.delete()
         await message.answer(
             profile_text,
             parse_mode="Markdown",
             reply_markup=reply_markup,
         )
 
-    await callback.answer()
+
+@router.message(Command("profile"))
+async def show_profile_command(message: Message):
+    await send_user_profile(message)
+
+
+@router.callback_query(F.data == "user_account")
+async def user_profile(callback: CallbackQuery):
+    await send_user_profile(callback)
 
 
 @router.callback_query(F.data == "get_config")
