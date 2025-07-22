@@ -1,5 +1,6 @@
 import os
 from typing import Optional
+from utils import get_instructions_text
 from service.notifier import notify_admins
 from service.user_vpn_check import update_vpn_state
 from service.vpn_service import create_vpn_config
@@ -12,7 +13,7 @@ from aiogram.types import LabeledPrice, PreCheckoutQuery, Message
 from aiogram.enums import ContentType
 from aiogram.types import CallbackQuery
 
-from keyboard.menu import get_extend_subscription_keyboard
+from keyboard.menu import get_extend_subscription_keyboard, get_instruction_type
 from service.generate_vpn_key import generate_vpn_key
 from service.db_instance import user_db
 from aiogram.types import Message, FSInputFile
@@ -160,6 +161,11 @@ async def successful_payment(message: Message):
             if not config:
                 await message.answer("⚙️ Генерируем VPN-конфигурацию...")
                 await create_vpn_config(telegram_id, message)
+                await message.answer(
+                    text=get_instructions_text(),
+                    disable_web_page_preview=True,
+                    reply_markup=get_instruction_type()
+                )
         else:
             await message.answer("🛡 У вас уже есть активная конфигурация.")
         update_vpn_state()

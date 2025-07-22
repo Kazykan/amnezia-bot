@@ -1,9 +1,7 @@
 import logging
 from aiogram import Router, F
 from aiogram.types import Message, FSInputFile, CallbackQuery
-from aiogram.filters import Command
-from matplotlib.pylab import longlong
-
+from utils import get_instructions_text
 from keyboard.menu import get_instruction_type
 
 router = Router()
@@ -96,26 +94,17 @@ async def send_android_instruction(callback: CallbackQuery):
 @router.callback_query(F.data == "instructions")
 async def show_instructions(callback: CallbackQuery):
 
-    text = (
-        "Чтобы начать, сначала скачайте приложение, затем установите его. После установки выберите тип вашего устройства, чтобы получить подробные инструкции.\n\n"
-        "Ссылки для скачивания AmneziaVPN:\n"
-        "📱 Если у вас iPhone или iPad – скачайте приложение здесь: [App Store](https://apps.apple.com/ru/app/amneziawg/id6478942365)\n\n"
-        "🤖 Если у вас Android – скачайте приложение здесь: [Google Play](https://play.google.com/store/apps/details?id=org.amnezia.vpn&hl=ru)\n\n"
-        "После установки выберите свое устройство, чтобы узнать, как настроить приложение.\n\n"
-        "ℹ️ Если у вас возникли сложности или остались вопросы — напишите мне: [@Kazykan] (https://t.me/Kazykan)"
-    )
-
     if isinstance(callback.message, Message):
         try:
             await callback.message.edit_text(
-                text=text,
+                text=get_instructions_text(),
                 disable_web_page_preview=True,
                 reply_markup=get_instruction_type(),
             )
         except Exception as e:
             logging.info(f"Ошибка при редактировании сообщения с инструкциями\n{e}")
             await callback.message.answer(
-                text=text,
+                text=get_instructions_text(),
                 disable_web_page_preview=True,
                 reply_markup=get_instruction_type(),
             )
