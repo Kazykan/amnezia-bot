@@ -159,6 +159,7 @@ async def admin_list_users_callback(callback: CallbackQuery):
             print(f"Processing client: {username}, last_handshke: {activ_client}")
 
             status = "❌"  # По умолчанию неактивен
+            server = ""  # Инициализируем переменную server значением по умолчанию
 
             if (
                 activ_client
